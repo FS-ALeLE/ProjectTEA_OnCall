@@ -1,0 +1,13 @@
+{
+  "name": "project-tea-functions",
+  "description": "교권침해사안관리시스템(TEA) Cloud Functions - 관리자 비밀번호 직접 변경 등",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^5.1.1"
+  }
+}

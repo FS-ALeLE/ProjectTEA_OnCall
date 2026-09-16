@@ -1,0 +1,144 @@
+/**
+ * firestore.rules
+ * -----------------------------------------------------------------------
+ * 교권침해사안관리시스템(TEA) - Firestore 보안 규칙
+ *
+ * 이 파일의 내용을 Firebase 콘솔 > Firestore Database > 규칙(Rules) 탭에
+ * 그대로 복사·붙여넣기하여 게시(Publish)하면 됩니다.
+ *
+ * 데이터 모델
+ *   - /staff/{uid}      : 로그인 계정별 소속·권한 정보
+ *       { name: string, role: 'hq' | 'region', loginId?: string,
+ *         regionCode?: string, regionName?: string, disabled?: boolean }
+ *       ※ 최초 1개의 본청(hq) 계정은 Firebase 콘솔에서 수동으로 생성해야 하며,
+ *         그 이후의 모든 계정은 로그인한 본청 계정이 [계정 관리] 화면
+ *         (js/admin-accounts.js)에서 생성·수정할 수 있다.
+ *   - /counters/{year}  : 연도별 분류번호 일련번호 카운터 (runTransaction으로만 갱신)
+ *       { year: number, lastSerial: number, updatedAt: timestamp }
+ *   - /cases/{caseId}   : 사안 데이터. caseId = 분류번호(또는 임시저장용 임시 ID)
+ *       classification.regionCode 필드를 기준으로 지역 장학사의 조회/쓰기 범위를 제한한다.
+ *
+ * 권한 정책
+ *   - '본청(총괄, role=hq)'    : 모든 지역의 사안을 읽고 쓸 수 있고, 계정(staff)을
+ *                                생성·수정할 수 있다.
+ *   - '지역 장학사(role=region)' : 로그인 계정에 등록된 자신의 regionCode와 일치하는
+ *                                사안만 읽고 쓸 수 있다. 다른 지역 사안은 완전히 차단된다.
+ *   - 로그인하지 않은 사용자, staff 문서가 없는 계정, disabled(비활성화)된 계정은
+ *     모든 접근이 거부된다.
+ * -----------------------------------------------------------------------
+ */
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------
+    // 공통 헬퍼 함수
+    // ※ get()/exists()는 반드시 경로를 직접 명시해야 하며(공식 문서 권장 방식),
+    //   경로를 별도 변수로 만들어 재사용하는 방식은 지원되지 않으므로
+    //   아래 각 함수마다 동일한 경로 표현식을 그대로 반복해서 사용한다.
+    // -----------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // 로그인 계정에 /staff 문서가 존재하고, 관리자에 의해 비활성화(disabled)되지
+    // 않은 상태여야 "정상 직원"으로 인정한다. 필드가 아예 없는 구형 문서는
+    // .get('disabled', false)의 기본값 처리로 "비활성화되지 않음"으로 간주된다.
+    function isStaff() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/staff/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.get('disabled', false) != true;
+    }
+
+    function staffData() {
+      return get(/databases/$(database)/documents/staff/$(request.auth.uid)).data;
+    }
+
+    function isHQ() {
+      return isStaff() && staffData().role == 'hq';
+    }
+
+    function isRegionStaff() {
+      return isStaff() && staffData().role == 'region';
+    }
+
+    function myRegionCode() {
+      return staffData().regionCode;
+    }
+
+    // -----------------------------------------------------------------
+    // /staff/{uid} - 소속/권한 정보 (계정 관리)
+    //   - 읽기: 본청(hq)은 전체 계정을 조회할 수 있고(계정 관리 화면 목록용),
+    //           그 외 계정은 본인 문서만 읽을 수 있다.
+    //   - 생성/수정: 오직 본청(hq) 계정만 가능하며, role은 'hq'|'region' 중
+    //     하나여야 하고 'region'이면 regionCode가 반드시 채워져 있어야 한다.
+    //   - 삭제: Firebase Authentication 사용자 삭제는 클라이언트 SDK로는
+    //     수행할 수 없으므로(Admin SDK 필요), 문서 삭제 자체를 막고 대신
+    //     disabled:true로 갱신하는 "비활성화" 방식만 허용한다.
+    // -----------------------------------------------------------------
+    match /staff/{uid} {
+      // get(단건)과 list(목록)를 분리한다.
+      // OR 조건(본청 전체 조회 || 본인 문서)을 allow read 하나로 묶으면
+      // 컬렉션 전체 get() 목록 조회가 규칙 평가에서 거부되는 경우가 있다.
+      allow get: if isHQ() || (isSignedIn() && request.auth.uid == uid);
+      allow list: if isHQ();
+
+      allow create: if isHQ() &&
+        request.resource.data.role in ['hq', 'region'] &&
+        request.resource.data.name is string && request.resource.data.name.size() > 0 &&
+        (request.resource.data.role == 'hq' ||
+          (request.resource.data.regionCode is string && request.resource.data.regionCode.size() > 0));
+
+      allow update: if isHQ() &&
+        request.resource.data.role in ['hq', 'region'] &&
+        request.resource.data.name is string && request.resource.data.name.size() > 0 &&
+        (request.resource.data.role == 'hq' ||
+          (request.resource.data.regionCode is string && request.resource.data.regionCode.size() > 0));
+
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------
+    // /counters/{year} - 분류번호 일련번호 카운터
+    //   로그인한 직원만 읽을 수 있고, 오직 트랜잭션을 통한 +1 갱신만 허용한다.
+    //   (문서 삭제는 항상 차단하여 일련번호가 되돌아가는 사고를 방지)
+    //   ※ {year}는 단순 경로 세그먼트이므로, 정식 채번용 문서(예: "2026")뿐
+    //   아니라 임시저장 전용 카운터 문서(예: "2026_draft")에도 동일하게 적용된다.
+    // -----------------------------------------------------------------
+    match /counters/{year} {
+      allow read: if isStaff();
+
+      allow create: if isStaff() &&
+        request.resource.data.lastSerial == 1;
+
+      allow update: if isStaff() &&
+        request.resource.data.lastSerial == resource.data.lastSerial + 1;
+
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------
+    // /cases/{caseId} - 사안 데이터
+    // -----------------------------------------------------------------
+    match /cases/{caseId} {
+      allow read: if isHQ() ||
+        (isRegionStaff() && resource.data.classification.regionCode == myRegionCode());
+
+      allow create: if isHQ() ||
+        (isRegionStaff() && request.resource.data.classification.regionCode == myRegionCode());
+
+      allow update: if isHQ() ||
+        (isRegionStaff() &&
+         resource.data.classification.regionCode == myRegionCode() &&
+         request.resource.data.classification.regionCode == myRegionCode());
+
+      // 지역 장학사는 자신의 지역에서 발생한 "임시저장" 사안만 삭제할 수 있고,
+      // 정식 접수된(임시저장이 아닌) 사안 삭제는 본청만 수행할 수 있다.
+      allow delete: if isHQ() ||
+        (isRegionStaff() &&
+         resource.data.classification.regionCode == myRegionCode() &&
+         resource.data.isDraft == true);
+    }
+  }
+}

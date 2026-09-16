@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>교권침해사안관리시스템</title>
+<link rel="icon" href="img/logo.png" />
+
+<!-- 한글 웹폰트 -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
+
+<!-- Tailwind CSS (CDN, 별도 빌드 과정 없이 즉시 사용) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Noto Sans KR', 'Pretendard', 'sans-serif'],
+        },
+        colors: {
+          navy: {
+            950: '#0b1220',
+            900: '#111a2e',
+            800: '#17223b',
+            700: '#233150',
+          },
+        },
+      },
+    },
+  };
+</script>
+
+<!-- 커스텀 스타일 -->
+<link rel="stylesheet" href="css/style.css" />
+
+<!-- Firebase SDK (compat) - Firestore / Cloud Storage / Authentication -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
+<script src="firebase-config.js"></script>
+
+<!-- Chart.js ([통계] 화면 시각화: 지역별 발생 건수 비교 차트 / 침해유형 Top5 원형 차트) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+</head>
+
+<body class="bg-slate-100 text-slate-800 antialiased">
+
+<!-- ==================================================================== -->
+<!-- 로그인 화면 (아이디 → 가상 이메일 매핑 후 Firebase Authentication) -->
+<!-- ==================================================================== -->
+<div id="login-screen" class="fixed inset-0 z-[200] flex items-center justify-center bg-gradient-to-br from-navy-950 via-navy-900 to-slate-800 px-4">
+  <div class="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-8">
+    <div class="flex flex-col items-center mb-6">
+      <div class="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-lg shadow-black/10 p-1.5 border border-slate-100">
+        <img src="img/logo.png" alt="충청남도교육청 로고" class="w-full h-full object-contain" />
+      </div>
+      <p class="text-slate-400 text-[11px] font-medium mt-3">충청남도교육청</p>
+      <p class="text-slate-900 font-extrabold text-[17px] tracking-tight">교권침해사안관리시스템</p>
+    </div>
+
+    <form id="login-form" novalidate>
+      <div class="mb-3">
+        <label class="form-label">아이디</label>
+        <input
+          type="text"
+          id="login-id"
+          class="form-input"
+          placeholder="아이디"
+          autocomplete="username"
+          inputmode="text"
+          spellcheck="false"
+          autocapitalize="off"
+          maxlength="64"
+          pattern="[A-Za-z0-9._\-]+"
+          title="영문, 숫자, 점(.), 밑줄(_), 하이픈(-)만 입력할 수 있습니다."
+          required
+        />
+      </div>
+      <div class="mb-2">
+        <label class="form-label">비밀번호</label>
+        <input type="password" id="login-password" class="form-input" placeholder="비밀번호" autocomplete="current-password" required />
+      </div>
+      <p id="login-error" class="hidden text-[12px] font-semibold text-rose-500 mb-3 leading-relaxed"></p>
+      <button type="submit" id="login-submit-btn" class="w-full py-2.5 rounded-xl text-[13.5px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-colors">로그인</button>
+    </form>
+
+    <p class="text-[11px] text-slate-400 text-center mt-5 leading-relaxed">계정 정보가 없으신가요?<br />충청남도교육청 교권보호관 시스템 관리자에게 문의해 주세요.</p>
+  </div>
+</div>
+
+<div id="app-shell" class="app-shell-hidden flex h-screen w-full overflow-hidden">
+
+  <!-- ==================================================================== -->
+  <!-- 좌측 고정 네비게이션 메뉴바                                            -->
+  <!-- ==================================================================== -->
+  <aside class="no-print w-64 shrink-0 h-screen bg-navy-950 flex flex-col">
+    <!-- 로고 / 시스템명 -->
+    <div class="flex items-center gap-3 px-5 h-20 border-b border-white/10 shrink-0">
+      <div class="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-black/20 shrink-0 p-1">
+        <img src="img/logo.png" alt="충청남도교육청 로고" class="w-full h-full object-contain" />
+      </div>
+      <div class="leading-tight">
+        <p class="text-slate-400 text-[11px] font-medium">충청남도교육청</p>
+        <p class="text-white font-extrabold text-[15px] tracking-tight">교권침해사안관리시스템</p>
+      </div>
+    </div>
+
+    <!-- 메뉴 목록 -->
+    <nav class="flex-1 px-3 py-5 space-y-1.5 overflow-y-auto">
+      <p class="px-3 mb-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">MENU</p>
+
+      <button type="button" class="nav-item nav-item-active" data-view="dashboard">
+        <svg class="w-5 h-5 nav-item-icon shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V20a1 1 0 01-1 1h-5a1 1 0 01-1-1v-5H10v5a1 1 0 01-1 1H4a1 1 0 01-1-1V9.75z" />
+        </svg>
+        <span>사안 현황</span>
+      </button>
+
+      <button type="button" class="nav-item" data-view="new-case">
+        <svg class="w-5 h-5 nav-item-icon shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-3-3v6m-7 4h14a1 1 0 001-1V6a1 1 0 00-1-1H5a1 1 0 00-1 1v14a1 1 0 001 1z" />
+        </svg>
+        <span>사안 접수</span>
+      </button>
+
+      <button type="button" class="nav-item" data-view="database">
+        <svg class="w-5 h-5 nav-item-icon shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6c0-1.1 3.58-2 8-2s8 .9 8 2-3.58 2-8 2-8-.9-8-2zm0 0v12c0 1.1 3.58 2 8 2s8-.9 8-2V6M4 12c0 1.1 3.58 2 8 2s8-.9 8-2" />
+        </svg>
+        <span>데이터베이스</span>
+      </button>
+
+      <button type="button" class="nav-item" data-view="stats">
+        <svg class="w-5 h-5 nav-item-icon shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 19V9m6 10V5m6 14v-7m6 7V3" />
+        </svg>
+        <span>통계</span>
+      </button>
+
+      <!-- [계정 관리]는 본청(총괄) 로그인 시에만 노출됩니다 (js/auth.js가 제어) -->
+      <button type="button" class="nav-item hidden" data-view="admin-accounts">
+        <svg class="w-5 h-5 nav-item-icon shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7zM19 8v4m2-2h-4" />
+        </svg>
+        <span>계정 관리</span>
+      </button>
+    </nav>
+
+    <!-- 하단 사용자 정보 (로그인 세션 기반 - js/auth.js가 값을 채움) -->
+    <div class="px-4 py-4 border-t border-white/10 shrink-0">
+      <div class="flex items-center gap-3 px-2 py-2.5 rounded-xl bg-white/5">
+        <div id="session-user-avatar" class="w-9 h-9 rounded-full bg-indigo-500/30 flex items-center justify-center text-indigo-200 font-bold text-sm shrink-0">장</div>
+        <div class="leading-tight min-w-0 flex-1">
+          <p id="session-user-name" class="text-white text-[13px] font-bold truncate">담당 장학사</p>
+          <p id="session-user-scope" class="text-slate-400 text-[11px] leading-snug whitespace-normal">교권보호관 · 본청</p>
+        </div>
+        <button type="button" id="logout-btn" title="로그아웃" class="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/15 flex items-center justify-center text-slate-300 hover:text-white transition-colors shrink-0">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ==================================================================== -->
+  <!-- 메인 컨텐츠 영역                                                       -->
+  <!-- ==================================================================== -->
+  <div class="flex-1 flex flex-col h-screen overflow-hidden">
+
+    <!-- 상단 헤더 바 -->
+    <header class="no-print h-20 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between px-8">
+      <div>
+        <h1 id="page-title" class="text-xl font-extrabold text-slate-900">사안 현황</h1>
+        <p id="page-desc" class="text-[13px] text-slate-400 mt-0.5">전체 사안 현황을 한눈에 확인합니다.</p>
+      </div>
+      <div class="flex items-center gap-5">
+        <div class="flex items-center gap-2.5 pl-3.5 pr-4 py-2 rounded-xl bg-indigo-50/70 border border-indigo-100">
+          <svg class="w-5 h-5 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div class="leading-tight">
+            <p id="live-clock-date" class="text-[12px] font-semibold text-indigo-500"></p>
+            <p id="live-clock-time" class="text-[18px] font-extrabold text-slate-800 font-mono tabular-nums tracking-wide"></p>
+          </div>
+        </div>
+        <div class="w-px h-8 bg-slate-200"></div>
+        <button type="button" class="relative w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+          <svg class="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+          </svg>
+          <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 스크롤 가능한 본문 -->
+    <main class="flex-1 overflow-y-auto px-8 py-7">
+
+      <!-- ================================================================ -->
+      <!-- VIEW 1. 홈 대시보드                                                -->
+      <!-- ================================================================ -->
+      <section id="view-dashboard" class="view-section">
+
+        <!-- 상단 배너: 페이지 안내 + 사안 접수 버튼 -->
+        <div class="flex items-center justify-between mb-5">
+          <div>
+            <h2 class="text-[15px] font-extrabold text-slate-800">요약</h2>
+          </div>
+          <button type="button" id="open-new-case-btn" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13.5px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-colors shrink-0">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+            사안 접수
+          </button>
+        </div>
+
+        <!-- 상단 지표 카드 -->
+        <div class="grid grid-cols-4 gap-5 mb-7">
+          <div class="stat-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-sky-50 flex items-center justify-center shrink-0">
+              <svg class="w-6 h-6 text-sky-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+            </div>
+            <div>
+              <p class="text-[13px] font-semibold text-slate-400">접수</p>
+              <p id="stat-received" class="text-2xl font-extrabold text-slate-900 mt-0.5">0건</p>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+              <svg class="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div>
+              <p class="text-[13px] font-semibold text-slate-400">진행중</p>
+              <p id="stat-inprogress" class="text-2xl font-extrabold text-slate-900 mt-0.5">0건</p>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
+              <svg class="w-6 h-6 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-5 9l2 2 4-4" /></svg>
+            </div>
+            <div>
+              <p class="text-[13px] font-semibold text-slate-400">사후관리</p>
+              <p id="stat-aftercare" class="text-2xl font-extrabold text-slate-900 mt-0.5">0건</p>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+              <svg class="w-6 h-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+            </div>
+            <div>
+              <p class="text-[13px] font-semibold text-slate-400">종결</p>
+              <p id="stat-closed" class="text-2xl font-extrabold text-slate-900 mt-0.5">0건</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 중앙(칸반) + 우측(복귀알림) 2단 구성 -->
+        <div class="grid grid-cols-12 gap-6 items-start">
+
+          <!-- 중앙 영역: 미해결 사안 칸반보드 -->
+          <div class="col-span-9">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-[15px] font-extrabold text-slate-800">미해결 사안 현황판</h2>
+              <p class="text-[12px] text-slate-400">카드를 클릭하면 상세 정보를 볼 수 있습니다</p>
+            </div>
+
+            <div class="grid grid-cols-3 gap-5">
+
+              <!-- 컬럼: 접수 -->
+              <div class="bg-slate-50/70 rounded-2xl border border-slate-200 flex flex-col">
+                <div class="flex items-center justify-between px-4 py-3.5 border-b border-slate-200">
+                  <div class="flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+                    <h3 class="font-bold text-slate-700 text-sm">접수</h3>
+                  </div>
+                  <span id="kanban-count-received" class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">0건</span>
+                </div>
+                <div id="kanban-list-received" class="kanban-column-body flex-1 overflow-y-auto p-3.5 space-y-3"></div>
+                <p id="kanban-empty-received" class="hidden text-center text-[13px] text-slate-400 py-10">접수 대기 중인 사안이 없습니다.</p>
+              </div>
+
+              <!-- 컬럼: 진행중 -->
+              <div class="bg-slate-50/70 rounded-2xl border border-slate-200 flex flex-col">
+                <div class="flex items-center justify-between px-4 py-3.5 border-b border-slate-200">
+                  <div class="flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                    <h3 class="font-bold text-slate-700 text-sm">진행중</h3>
+                  </div>
+                  <span id="kanban-count-inprogress" class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">0건</span>
+                </div>
+                <div id="kanban-list-inprogress" class="kanban-column-body flex-1 overflow-y-auto p-3.5 space-y-3"></div>
+                <p id="kanban-empty-inprogress" class="hidden text-center text-[13px] text-slate-400 py-10">진행 중인 사안이 없습니다.</p>
+              </div>
+
+              <!-- 컬럼: 사후관리 -->
+              <div class="bg-slate-50/70 rounded-2xl border border-slate-200 flex flex-col">
+                <div class="flex items-center justify-between px-4 py-3.5 border-b border-slate-200">
+                  <div class="flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-violet-500"></span>
+                    <h3 class="font-bold text-slate-700 text-sm">사후관리</h3>
+                  </div>
+                  <span id="kanban-count-aftercare" class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">0건</span>
+                </div>
+                <div id="kanban-list-aftercare" class="kanban-column-body flex-1 overflow-y-auto p-3.5 space-y-3"></div>
+                <p id="kanban-empty-aftercare" class="hidden text-center text-[13px] text-slate-400 py-10">사후관리 중인 사안이 없습니다.</p>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 우측 영역: 복귀 관리 알림 플로팅 위젯 -->
+          <div class="col-span-3">
+            <div class="sticky top-0 bg-white rounded-2xl border border-slate-200 shadow-xl flex flex-col overflow-hidden" style="max-height: calc(100vh - 13rem);">
+              <div class="px-4 pt-4 pb-3 border-b border-slate-100 shrink-0">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                  </div>
+                  <h2 class="text-[14px] font-extrabold text-slate-800">복귀 관리 알림</h2>
+                  <span id="followup-count-badge" class="ml-auto text-[11px] font-bold w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center">0</span>
+                </div>
+                <p class="text-[11.5px] text-slate-400 mt-1.5 leading-snug">조치 완료 후 1주 · 1개월 복귀 점검이 필요한 사안입니다.</p>
+              </div>
+
+              <div id="followup-list" class="flex-1 overflow-y-auto p-3 space-y-2.5"></div>
+
+              <div id="followup-empty" class="hidden flex-col items-center justify-center text-center py-10 px-4">
+                <svg class="w-9 h-9 text-emerald-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                <p class="text-[13px] font-bold text-slate-600">모든 복귀 점검이 완료되었습니다.</p>
+                <p class="text-[11.5px] text-slate-400 mt-1">새로운 점검 일정이 등록되면 여기에 표시됩니다.</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ================================================================ -->
+      <!-- VIEW 2. 종합 데이터베이스 (카드형 게시판 리스트)                     -->
+      <!-- ================================================================ -->
+      <section id="view-database" class="view-section hidden">
+
+        <!-- 필터바 (내용 길이에 맞춰 폭을 줄이고 좌측으로 정렬) -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-5">
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="w-40">
+              <label class="form-label">지역별</label>
+              <select id="db-filter-region" class="form-select">
+                <option value="">전체 지역</option>
+              </select>
+            </div>
+            <div class="w-40">
+              <label class="form-label">학교급별</label>
+              <select id="db-filter-level" class="form-select">
+                <option value="">전체 학교급</option>
+              </select>
+            </div>
+            <div class="w-32">
+              <label class="form-label">진행상태별</label>
+              <select id="db-filter-status" class="form-select">
+                <option value="">전체 상태</option>
+              </select>
+            </div>
+            <div class="w-72">
+              <label class="form-label">침해유형별</label>
+              <select id="db-filter-violation" class="form-select">
+                <option value="">전체 유형</option>
+              </select>
+            </div>
+            <div class="w-64 ml-auto">
+              <label class="form-label">검색</label>
+              <div class="relative">
+                <svg class="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" /></svg>
+                <input type="text" id="db-search-input" class="form-input pl-8" placeholder="분류번호, 학교명, 교원명 등 검색" />
+              </div>
+            </div>
+            <span id="database-result-count" class="text-[12.5px] font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full shrink-0 self-end mb-0.5"></span>
+          </div>
+        </div>
+
+        <!-- 리스트 컬럼 헤더 -->
+        <div class="db-row-grid db-row-header">
+          <span>분류번호</span>
+          <span>학교명</span>
+          <span>피해교원</span>
+          <span>신고일시</span>
+          <span>상태</span>
+          <span>우선순위</span>
+          <span>주요 침해유형</span>
+        </div>
+
+        <!-- 카드형 리스트 -->
+        <div id="database-list" class="space-y-2.5 mt-2.5"></div>
+
+        <div id="database-empty" class="hidden bg-white rounded-2xl border border-slate-200 py-16 text-center mt-2.5">
+          <svg class="w-10 h-10 text-slate-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" /></svg>
+          <p class="text-[13.5px] font-bold text-slate-500">조건에 맞는 사안이 없습니다.</p>
+          <p class="text-[12px] text-slate-400 mt-1">필터 조건을 변경해 보세요.</p>
+        </div>
+
+        <!-- 페이지네이션 바 -->
+        <div id="database-pagination-bar" class="hidden flex-wrap items-center justify-between gap-3 mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
+          <div class="flex items-center gap-2">
+            <label class="text-[11.5px] font-bold text-slate-500 whitespace-nowrap">페이지당 표시</label>
+            <select id="db-page-size" class="form-select w-24">
+              <option value="10" selected>10건</option>
+              <option value="20">20건</option>
+              <option value="30">30건</option>
+              <option value="50">50건</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-3">
+            <span id="db-pagination-info" class="text-[11.5px] font-semibold text-slate-400"></span>
+            <div id="db-pagination-controls" class="flex items-center gap-1.5"></div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ================================================================ -->
+      <!-- VIEW 3. 통계 - 관리자용 대시보드 시각화 화면                         -->
+      <!-- ================================================================ -->
+      <section id="view-stats" class="view-section hidden">
+
+        <!-- 인쇄 전용 보고서 헤더 (화면에서는 숨김, 인쇄 시에만 노출) -->
+        <div id="stats-print-heading" class="hidden mb-6">
+          <p class="text-[11px] font-bold text-slate-400">충청남도교육청 교권보호팀</p>
+          <h1 class="text-xl font-extrabold text-slate-900 mt-0.5">교권침해사안 통계 보고서</h1>
+          <p id="stats-print-meta" class="text-[12px] text-slate-500 mt-1"></p>
+          <div class="border-b-2 border-slate-800 mt-3"></div>
+        </div>
+
+        <!-- 상단 필터바 + 출력/다운로드 버튼 -->
+        <div class="no-print bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-5">
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="w-[9.5rem]">
+              <label class="form-label">지역 선택</label>
+              <select id="stats-filter-region" class="form-select">
+                <option value="">전체 지역</option>
+              </select>
+            </div>
+            <div class="w-[9.5rem]">
+              <label class="form-label">기간 선택</label>
+              <select id="stats-filter-period" class="form-select">
+                <option value="">2026년 전체</option>
+                <option value="1">1분기 (1~3월)</option>
+                <option value="2">2분기 (4~6월)</option>
+                <option value="3">3분기 (7~9월)</option>
+                <option value="4">4분기 (10~12월)</option>
+              </select>
+            </div>
+            <div class="w-[9.5rem]">
+              <label class="form-label">학교급 선택</label>
+              <select id="stats-filter-level" class="form-select">
+                <option value="">전체 학교급</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2 ml-auto">
+              <button type="button" id="stats-print-btn" class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-[12.5px] font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors">
+                <span>📊</span><span>통계 보고서 출력 (인쇄)</span>
+              </button>
+              <button type="button" id="stats-export-btn" class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-[12.5px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-colors">
+                <span>📥</span><span>엑셀 다운로드</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 핵심 지표 요약 카드 (KPI - 4종) -->
+        <div class="grid grid-cols-4 gap-5 mb-6">
+          <div class="stat-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div class="flex items-center gap-4">
+              <div class="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
+                <svg class="w-6 h-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>
+              </div>
+              <div>
+                <p class="text-[13px] font-semibold text-slate-400">총 접수 건수</p>
+                <p id="stats-kpi-total" class="text-2xl font-extrabold text-slate-900 mt-0.5">0건</p>
+              </div>
+            </div>
+            <p id="stats-kpi-total-yoy" class="text-[11px] font-bold text-emerald-600 mt-3"></p>
+          </div>
+
+          <div class="stat-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+              <svg class="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div>
+              <p class="text-[13px] font-semibold text-slate-400">처리 중인 사안</p>
+              <p id="stats-kpi-progress" class="text-2xl font-extrabold text-slate-900 mt-0.5">0건</p>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
+              <svg class="w-6 h-6 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div>
+              <p class="text-[13px] font-semibold text-slate-400">심의완료 · 종결 사안</p>
+              <p id="stats-kpi-closed" class="text-2xl font-extrabold text-slate-900 mt-0.5">0건</p>
+            </div>
+          </div>
+
+          <div class="stat-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+              <svg class="w-6 h-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+            </div>
+            <div>
+              <p class="text-[13px] font-semibold text-slate-400">임시저장(작성중) 사안</p>
+              <p id="stats-kpi-draft" class="text-2xl font-extrabold text-slate-900 mt-0.5">0건</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 지역별 / 학교급별 발생 현황 -->
+        <div class="grid grid-cols-2 gap-5 mb-6">
+
+          <!-- 지역별 발생 건수 비교 차트 (Chart.js 막대 그래프) -->
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-[14px] font-extrabold text-slate-800">지역별 발생 건수 비교 차트</h3>
+              <span class="text-[11px] font-semibold text-slate-400">상위 8개 시군</span>
+            </div>
+            <p class="text-[11.5px] text-slate-400 mb-3">충남 14개 시군 중 발생 빈도가 높은 지역 순으로 표시합니다.</p>
+            <div class="relative" style="height: 260px;">
+              <canvas id="stats-region-chart-canvas"></canvas>
+            </div>
+            <p id="stats-region-chart-empty" class="hidden text-[12px] text-slate-400 text-center py-6"></p>
+          </div>
+
+          <!-- 학교급별 비율 - 진행 바 -->
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-[14px] font-extrabold text-slate-800">학교급별 발생 비율</h3>
+              <span class="text-[11px] font-semibold text-slate-400">유·초·중·고·특수·각종</span>
+            </div>
+            <p class="text-[11.5px] text-slate-400 mb-3">학교급별 사안 발생 비중을 한눈에 확인합니다.</p>
+            <div id="stats-level-chart" class="space-y-3"></div>
+          </div>
+        </div>
+
+        <!-- 침해 유형 Top 5 원형 차트 (Chart.js) + 16대 교육활동 침해 유형별 랭킹 -->
+        <div class="grid grid-cols-2 gap-5">
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-[14px] font-extrabold text-slate-800">침해 유형 Top 5 원형 차트</h3>
+              <span class="text-[11px] font-semibold text-slate-400">비율(%)</span>
+            </div>
+            <p class="text-[11.5px] text-slate-400 mb-3">16대 교육활동 침해 유형 중 발생 빈도가 가장 높은 5개 유형의 비중입니다.</p>
+            <div class="relative" style="height: 260px;">
+              <canvas id="stats-violation-pie-canvas"></canvas>
+            </div>
+            <p id="stats-violation-pie-empty" class="hidden text-[12px] text-slate-400 text-center py-6"></p>
+          </div>
+
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-[14px] font-extrabold text-slate-800">교육활동 침해 유형별 랭킹 TOP 5</h3>
+              <span class="text-[11px] font-semibold text-slate-400">전년 동기 대비 증감</span>
+            </div>
+            <p class="text-[11.5px] text-slate-400 mb-3">전년 동기 대비 증감 추이를 함께 확인합니다.</p>
+            <div id="stats-ranking-list" class="space-y-2"></div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ================================================================ -->
+      <!-- VIEW 4. 계정 관리 - 본청(총괄) 전용                                 -->
+      <!-- ================================================================ -->
+      <section id="view-admin-accounts" class="view-section hidden">
+        <div class="flex items-center justify-between mb-5">
+          <div>
+            <h2 class="text-[15px] font-extrabold text-slate-800">계정 목록</h2>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <button type="button" id="admin-account-create-btn" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13.5px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-colors">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+              계정 생성
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="admin-account-row-grid px-5 py-3 bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+            <span>아이디</span>
+            <span>이름</span>
+            <span>권한</span>
+            <span>소속 지역</span>
+            <span>상태</span>
+            <span class="text-right">관리</span>
+          </div>
+          <div id="admin-account-list"></div>
+          <p id="admin-account-empty" class="hidden text-[12px] text-slate-400 text-center py-10">등록된 계정이 없습니다.</p>
+        </div>
+
+        <p class="text-[11px] text-slate-400 mt-3 leading-relaxed">
+          ※ 계정을 삭제하는 대신 <span class="font-bold text-slate-500">비활성화</span> 처리합니다. 비활성화된 계정은 즉시 로그인이 차단됩니다.<br />
+          ※ 비밀번호는 관리자가 <span class="font-bold text-slate-500">[비밀번호]</span> 버튼으로 새 비밀번호를 직접 지정할 수 있습니다.
+        </p>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<!-- 계정 생성 / 수정 팝업 모달 (본청 전용)                                 -->
+<!-- ==================================================================== -->
+<div id="admin-account-modal" class="tea-modal hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" data-admin-account-close></div>
+
+  <div class="modal-panel relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-3.5 border-b border-slate-200 shrink-0">
+      <div>
+        <h2 id="admin-account-modal-title" class="text-[15.5px] font-extrabold text-slate-800">계정 생성</h2>
+        <p class="text-[11px] text-slate-400 mt-0.5">시스템을 이용할 계정 정보를 입력해 주세요.</p>
+      </div>
+      <button type="button" data-admin-account-close class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+        <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <form id="admin-account-form" novalidate>
+      <div class="px-6 py-4 space-y-3">
+        <div>
+          <label class="form-label">아이디</label>
+          <input
+            type="text"
+            id="admin-account-login-id"
+            class="form-input"
+            placeholder="예: local01"
+            pattern="[A-Za-z0-9._\-]+"
+            autocomplete="off"
+            spellcheck="false"
+            autocapitalize="off"
+            maxlength="64"
+            required
+          />
+        </div>
+
+        <div>
+          <label class="form-label">이름</label>
+          <input type="text" id="admin-account-name" class="form-input" placeholder="이름" required />
+        </div>
+
+        <div id="admin-account-password-field">
+          <label class="form-label">초기 비밀번호</label>
+          <input type="password" id="admin-account-password" class="form-input" placeholder="6자 이상" minlength="6" autocomplete="new-password" />
+        </div>
+
+        <div>
+          <label class="form-label">권한</label>
+          <select id="admin-account-role" class="form-select" required>
+            <option value="region">지역 장학사</option>
+            <option value="hq">본청(총괄)</option>
+          </select>
+        </div>
+
+        <div id="admin-account-region-field">
+          <label class="form-label">소속 지역</label>
+          <select id="admin-account-region" class="form-select">
+            <option value="">지역 선택</option>
+          </select>
+        </div>
+
+        <p id="admin-account-form-error" class="hidden text-[12px] font-semibold text-rose-500 leading-relaxed"></p>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 px-6 py-3.5 border-t border-slate-200 shrink-0">
+        <button type="button" data-admin-account-close class="px-4 py-2 rounded-xl text-[13px] font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors">취소</button>
+        <button type="submit" id="admin-account-submit-btn" class="px-4 py-2 rounded-xl text-[13px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-colors">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<!-- 비밀번호 직접 변경 팝업 모달 (본청 전용)                               -->
+<!-- ==================================================================== -->
+<div id="admin-password-modal" class="tea-modal hidden fixed inset-0 z-[60] flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" data-admin-password-close></div>
+
+  <div class="modal-panel relative bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-3.5 border-b border-slate-200 shrink-0">
+      <div>
+        <h2 class="text-[15.5px] font-extrabold text-slate-800">비밀번호 변경</h2>
+        <p id="admin-password-target-label" class="text-[11px] text-slate-400 mt-0.5">대상 계정</p>
+      </div>
+      <button type="button" data-admin-password-close class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+        <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <form id="admin-password-form" novalidate>
+      <div class="px-6 py-4 space-y-3">
+        <div>
+          <label class="form-label">새 비밀번호</label>
+          <input type="password" id="admin-password-new" class="form-input" placeholder="6자 이상" minlength="6" autocomplete="new-password" required />
+        </div>
+        <div>
+          <label class="form-label">새 비밀번호 확인</label>
+          <input type="password" id="admin-password-confirm" class="form-input" placeholder="한 번 더 입력" minlength="6" autocomplete="new-password" required />
+        </div>
+        <p id="admin-password-form-error" class="hidden text-[12px] font-semibold text-rose-500 leading-relaxed"></p>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 px-6 py-3.5 border-t border-slate-200 shrink-0">
+        <button type="button" data-admin-password-close class="px-4 py-2 rounded-xl text-[13px] font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors">취소</button>
+        <button type="submit" id="admin-password-submit-btn" class="px-4 py-2 rounded-xl text-[13px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-colors">변경</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<!-- 새 사안 접수 팝업 모달                                                -->
+<!-- ==================================================================== -->
+<div id="new-case-modal" class="tea-modal hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" data-new-case-backdrop></div>
+
+  <div class="modal-panel relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+
+    <!-- 모달 헤더 -->
+    <div class="flex items-center justify-between px-6 py-3.5 border-b border-slate-200 shrink-0">
+      <div>
+        <h2 class="text-[15.5px] font-extrabold text-slate-800">사안 접수</h2>
+        <p class="text-[11px] text-slate-400 mt-0.5">교육활동 침해 사안의 세부 내용을 입력해 주세요.</p>
+      </div>
+      <button type="button" data-new-case-close class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+        <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <form id="new-case-form" class="flex-1 flex flex-col overflow-hidden" novalidate>
+
+      <!-- 모달 스크롤 바디 -->
+      <div id="new-case-modal-body" class="flex-1 overflow-y-auto px-6 py-4 space-y-3.5">
+
+        <!-- 1. 접수 기본 정보 -->
+        <div class="form-section-card">
+          <h3 class="form-section-title mb-2.5"><span class="form-section-num">1</span>접수 기본 정보</h3>
+          <div class="grid grid-cols-4 gap-3">
+            <div>
+              <label class="form-label">신고일자</label>
+              <input type="date" id="field-report-date" class="form-input" required />
+            </div>
+            <div>
+              <label class="form-label">신고시각</label>
+              <input type="time" id="field-report-time" class="form-input" required />
+            </div>
+            <div>
+              <label class="form-label">지역코드</label>
+              <select id="field-region" class="form-select" required>
+                <option value="">지역 선택</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">학교급코드</label>
+              <select id="field-school-level" class="form-select" required>
+                <option value="">학교급 선택</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-3 mt-3">
+            <div class="relative">
+              <label class="form-label">학교명</label>
+              <input
+                type="text"
+                id="field-school-search"
+                class="form-input"
+                placeholder="NEIS 정식 학교명을 검색하세요 (예: 천안초)"
+                autocomplete="off"
+                spellcheck="false"
+                required
+              />
+              <input type="hidden" id="field-school-name" />
+              <div id="field-school-dropdown" class="hidden absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto"></div>
+            </div>
+            <div>
+              <label class="form-label">신고인 이름</label>
+              <input type="text" id="field-reporter-name" class="form-input" placeholder="신고인 이름" required />
+            </div>
+            <div>
+              <label class="form-label">신고인 관계</label>
+              <select id="field-reporter-relation" class="form-select" required>
+                <option value="">관계 선택</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 피해 교원 정보 -->
+        <div class="form-section-card">
+          <h3 class="form-section-title mb-2.5"><span class="form-section-num">2</span>피해 교원 정보</h3>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="form-label">이름</label>
+              <input type="text" id="field-victim-name" class="form-input" placeholder="피해 교원 이름" required />
+            </div>
+            <div>
+              <label class="form-label">성별</label>
+              <div class="flex items-center gap-3 h-[34px]">
+                <label class="radio-inline"><input type="radio" name="victim-gender" value="남" checked /> 남</label>
+                <label class="radio-inline"><input type="radio" name="victim-gender" value="여" /> 여</label>
+              </div>
+            </div>
+            <div>
+              <label class="form-label">연락처</label>
+              <input type="text" id="field-victim-phone" class="form-input phone-input" placeholder="010-0000-0000" inputmode="numeric" />
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-3 mt-3">
+            <div>
+              <label class="form-label">교원구분</label>
+              <div class="flex items-center gap-3 h-[34px]">
+                <label class="radio-inline"><input type="radio" name="victim-employment" value="정규교원" checked /> 정규교원</label>
+                <label class="radio-inline"><input type="radio" name="victim-employment" value="기간제교원" /> 기간제교원</label>
+              </div>
+            </div>
+            <div>
+              <label class="form-label">담임여부</label>
+              <div class="yn-toggle" data-yn-group="victim-homeroom" data-value="N">
+                <button type="button" class="yn-option yn-option-active" data-yn-value="N">N</button>
+                <button type="button" class="yn-option" data-yn-value="Y">Y</button>
+              </div>
+            </div>
+            <div>
+              <label class="form-label">특수교사여부</label>
+              <div class="yn-toggle" data-yn-group="victim-special-teacher" data-value="N">
+                <button type="button" class="yn-option yn-option-active" data-yn-value="N">N</button>
+                <button type="button" class="yn-option" data-yn-value="Y">Y</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 침해 관련자 -->
+        <div class="form-section-card">
+          <div class="flex items-center justify-between mb-2.5">
+            <h3 class="form-section-title"><span class="form-section-num">3</span>침해 관련자</h3>
+            <button type="button" id="add-related-person-btn" class="inline-flex items-center gap-1 text-[12px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+              관련자 추가
+            </button>
+          </div>
+          <div id="related-persons-list" class="space-y-2.5"></div>
+        </div>
+
+        <!-- 4. 교육활동 침해 유형 -->
+        <div class="form-section-card">
+          <h3 class="form-section-title mb-2.5"><span class="form-section-num">4</span>교육활동 침해 유형 <span class="text-[11px] font-medium text-slate-400 ml-1">(중복 선택 가능)</span></h3>
+          <div id="violation-types-grid" class="grid grid-cols-2 gap-y-2 gap-x-4"></div>
+        </div>
+
+        <!-- 5. 사안 내용 -->
+        <div class="form-section-card">
+          <h3 class="form-section-title mb-2.5"><span class="form-section-num">5</span>사안 내용</h3>
+          <textarea id="field-case-content" class="form-textarea" rows="5" placeholder="① 일시&#10;② 장소&#10;③ 관련 내용&#10;※ 개조식으로 자유롭게 작성해 주세요."></textarea>
+        </div>
+
+        <!-- 6. 피해교원 요청 사항 -->
+        <div class="form-section-card">
+          <h3 class="form-section-title mb-2.5"><span class="form-section-num">6</span>피해교원 요청 사항</h3>
+          <div class="grid grid-cols-4 gap-3 items-start">
+            <div>
+              <label class="form-label">즉시 분리 희망</label>
+              <div class="yn-toggle" data-yn-group="immediate-separation" data-value="N">
+                <button type="button" class="yn-option yn-option-active" data-yn-value="N">N</button>
+                <button type="button" class="yn-option" data-yn-value="Y">Y</button>
+              </div>
+            </div>
+            <div class="col-span-3">
+              <label class="form-label">기타 의견</label>
+              <textarea id="field-victim-other-opinion" class="form-textarea" rows="1" placeholder="피해교원의 기타 요청 사항을 입력하세요"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- 7. 참고인 -->
+        <div class="form-section-card">
+          <h3 class="form-section-title mb-2.5"><span class="form-section-num">7</span>참고인 여부</h3>
+          <div class="yn-toggle" data-yn-group="witness-presence" data-value="무">
+            <button type="button" class="yn-option" data-yn-value="유">유</button>
+            <button type="button" class="yn-option yn-option-active" data-yn-value="무">무</button>
+          </div>
+          <div class="slide-panel hidden mt-3 grid grid-cols-2 gap-3" data-witness-panel>
+            <div>
+              <label class="form-label">참고인 이름</label>
+              <input type="text" id="field-witness-name" class="form-input" placeholder="참고인 이름" />
+            </div>
+            <div>
+              <label class="form-label">참고인 연락처</label>
+              <input type="text" id="field-witness-phone" class="form-input phone-input" placeholder="010-0000-0000" inputmode="numeric" />
+            </div>
+            <div class="col-span-2">
+              <label class="form-label">참고인 관계</label>
+              <input type="text" id="field-witness-relation" class="form-input" placeholder="예: 동료 교사, 같은반 학생 등" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 8. 첨부파일 -->
+        <div class="form-section-card">
+          <div class="flex items-center justify-between mb-2.5">
+            <h3 class="form-section-title"><span class="form-section-num">8</span>첨부파일</h3>
+            <span id="attachment-count" class="text-[11px] font-semibold text-slate-400">0개 파일</span>
+          </div>
+          <div id="attachment-dropzone" class="dropzone flex flex-col items-center justify-center text-center py-5 px-4">
+            <svg class="w-7 h-7 text-indigo-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 12v9m0-9l3 3m-3-3l-3 3" /></svg>
+            <p class="text-[12.5px] font-bold text-slate-600">파일을 끌어다 놓거나 클릭하여 첨부하세요</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">지원 형식: 사진(JPG·PNG·GIF), HWP, PDF</p>
+            <input type="file" id="attachment-input" class="hidden" multiple accept=".jpg,.jpeg,.png,.gif,.hwp,.hwpx,.pdf" />
+          </div>
+          <div id="attachment-list" class="mt-3 space-y-1.5"></div>
+        </div>
+
+        <!-- 9. 조치 경과 -->
+        <div class="form-section-card">
+          <h3 class="form-section-title mb-0.5"><span class="form-section-num">9</span>조치 경과</h3>
+          <p class="text-[11px] text-slate-400 mb-3 ml-[1.6rem]">원하는 단계를 클릭하면 기록을 시작할 수 있습니다.</p>
+          <div id="progress-timeline"></div>
+        </div>
+
+      </div>
+
+      <!-- 모달 하단 액션 바 -->
+      <div class="shrink-0 border-t border-slate-200 px-6 py-3.5 flex items-center justify-between bg-slate-50">
+        <p id="form-validation-summary" class="text-[12px] font-semibold text-rose-500 hidden"></p>
+        <div class="flex items-center gap-2.5 ml-auto">
+          <button type="button" id="cancel-case-form-btn" class="px-4 py-2 rounded-xl text-[12.5px] font-bold text-slate-500 bg-slate-200 hover:bg-slate-300 transition-colors">취소</button>
+          <button type="button" id="draft-save-case-btn" class="px-4 py-2 rounded-xl text-[12.5px] font-bold text-indigo-600 border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 transition-colors">임시저장</button>
+          <button type="submit" id="submit-case-btn" class="px-5 py-2 rounded-xl text-[12.5px] font-bold text-white bg-indigo-700 hover:bg-indigo-800 shadow-lg shadow-indigo-200 transition-colors">사안 등록</button>
+        </div>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<!-- 사안 상세 포트폴리오 모달 (경찰 조서 스타일의 읽기 전용 문서 + 위원회/법률 조치 기록 폼) -->
+<!-- ==================================================================== -->
+<div id="case-modal" class="tea-modal hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" data-modal-backdrop></div>
+
+  <div class="modal-panel relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+
+    <!-- 모달 헤더 -->
+    <div class="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-200 shrink-0 bg-slate-50">
+      <div id="case-modal-header" class="min-w-0"></div>
+      <div class="flex flex-col items-end gap-2 shrink-0">
+        <button type="button" data-modal-close class="w-8 h-8 rounded-full bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center transition-colors">
+          <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+        <button type="button" id="case-memo-btn" title="비공식 메모 남기기" class="relative inline-flex items-center gap-1.5 h-8 px-2.5 rounded-full bg-white border border-slate-200 hover:bg-amber-50 hover:border-amber-300 transition-colors">
+          <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 20l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" /></svg>
+          <span class="text-[12px] font-bold text-amber-600">메모</span>
+          <span id="case-memo-count-badge" class="hidden absolute -top-1.5 -right-1.5 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-amber-500 text-white text-[9.5px] font-bold leading-[1.1rem] text-center">0</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 모달 스크롤 바디 -->
+    <div id="case-modal-body" class="flex-1 overflow-y-auto px-6 py-4 space-y-3.5"></div>
+
+    <!-- 모달 하단 액션 바 -->
+    <div class="shrink-0 border-t border-slate-200 px-6 py-3.5 flex items-center justify-between bg-slate-50">
+      <p id="case-modal-footer-hint" class="text-[11px] text-slate-400"></p>
+      <div class="flex items-center gap-2.5">
+        <button type="button" id="case-draft-delete-btn" class="hidden px-4 py-2 rounded-xl text-[12.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-colors">임시저장 삭제</button>
+        <button type="button" data-modal-close class="px-4 py-2 rounded-xl text-[12.5px] font-bold text-slate-500 bg-slate-200 hover:bg-slate-300 transition-colors">닫기</button>
+        <button type="button" id="case-decision-save-btn" class="px-5 py-2 rounded-xl text-[12.5px] font-bold text-white bg-indigo-700 hover:bg-indigo-800 shadow-lg shadow-indigo-200 transition-colors">처리상황 저장</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<!-- 비공식 메모 팝업 (사건 상세 모달 위에 겹쳐서 뜨는 소형 팝업)              -->
+<!-- ==================================================================== -->
+<div id="case-memo-modal" class="tea-modal hidden fixed inset-0 z-[60] flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" data-memo-backdrop></div>
+
+  <div class="modal-panel relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden">
+
+    <!-- 팝업 헤더 -->
+    <div class="flex items-center justify-between px-5 py-3.5 border-b border-amber-200 shrink-0 bg-amber-50">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 20l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" /></svg>
+        <h3 class="text-[14px] font-extrabold text-slate-800">비공식 메모</h3>
+      </div>
+      <button type="button" data-memo-close class="w-7 h-7 rounded-full bg-white border border-amber-200 hover:bg-amber-100 flex items-center justify-center transition-colors">
+        <svg class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <!-- 메모 목록 -->
+    <div id="case-memo-list" class="flex-1 overflow-y-auto px-5 py-3.5 space-y-2"></div>
+
+    <!-- 메모 입력 -->
+    <div class="shrink-0 border-t border-slate-200 px-5 py-3.5 bg-slate-50">
+      <textarea id="case-memo-input" class="form-textarea" rows="2" placeholder="자유롭게 메모를 남겨보세요. (예: 통화 내용, 다음 확인할 사항 등)"></textarea>
+      <div class="flex justify-end mt-2">
+        <button type="button" id="case-memo-add-btn" class="px-4 py-1.5 rounded-lg text-[12px] font-bold text-white bg-amber-500 hover:bg-amber-600 transition-colors">메모 추가</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<!-- 스크립트 로드 (의존 순서대로) -->
+<!-- ==================================================================== -->
+<script src="js/data.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/form-options.js"></script>
+<script src="js/firebase-cases.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/admin-accounts.js"></script>
+<script src="js/ui-components.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/draft-delete.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/dashboard-summary.js"></script>
+<script src="js/kanban.js"></script>
+<script src="js/case-modal.js"></script>
+<script src="js/database-view.js"></script>
+<script src="js/followup-widget.js"></script>
+<script src="js/new-case-classification.js"></script>
+<script src="js/new-case-related-persons.js"></script>
+<script src="js/new-case-attachments.js"></script>
+<script src="js/new-case-timeline.js"></script>
+<script src="js/new-case-modal.js"></script>
+<script src="js/neis-config.js"></script>
+<script src="js/school-search.js"></script>
+<script src="js/new-case-form.js"></script>
+<script src="js/stats-view.js"></script>
+<script src="js/modal-esc.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

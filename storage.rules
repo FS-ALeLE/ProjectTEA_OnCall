@@ -1,0 +1,54 @@
+/**
+ * storage.rules
+ * -----------------------------------------------------------------------
+ * 교권침해사안관리시스템(TEA) - Cloud Storage 보안 규칙 (첨부파일 저장소)
+ *
+ * Firebase 콘솔 > Storage > 규칙(Rules) 탭에 그대로 복사·붙여넣기하여
+ * 게시(Publish)하면 됩니다. firestore.rules의 /staff/{uid} 문서를 함께 참조하여
+ * Firestore 보안 규칙과 동일한 '본청/지역 장학사' 권한 체계를 적용합니다.
+ *
+ * 업로드된 각 파일에는 js/firebase-cases.js에서 customMetadata.regionCode
+ * (해당 사안의 2자리 지역코드)를 함께 저장하므로, 이 값을 기준으로
+ * 지역 장학사는 자신의 지역 첨부파일만 열람/업로드할 수 있다.
+ * -----------------------------------------------------------------------
+ */
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function staffData() {
+      return firestore.get(/databases/(default)/documents/staff/$(request.auth.uid)).data;
+    }
+
+    function isHQ() {
+      return isSignedIn() && staffData().role == 'hq';
+    }
+
+    function isRegionStaff() {
+      return isSignedIn() && staffData().role == 'region';
+    }
+
+    // cases/{caseId}/{fileName} - 사안별 첨부파일
+    match /cases/{caseId}/{fileName} {
+      allow read: if isHQ() ||
+        (isRegionStaff() && resource.metadata.regionCode == staffData().regionCode);
+
+      allow write: if (isHQ() ||
+        (isRegionStaff() && request.resource.metadata.regionCode == staffData().regionCode)) &&
+        request.resource.size < 20 * 1024 * 1024;
+
+      allow delete: if isHQ() ||
+        (isRegionStaff() && resource.metadata.regionCode == staffData().regionCode);
+    }
+
+    // 그 외 모든 경로는 기본적으로 차단
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
